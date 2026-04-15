@@ -6,8 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Avoid upcoming GitHub Actions JS runtime breakage:
+  # actions/checkout and actions/setup-node currently run on Node 20 internally.
+  # GitHub will default to Node 24 soon; opt-in now to catch issues early.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
-  build-test:
+  build-test-audit:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,4 +33,16 @@ jobs:
 
       - name: Test
         run: npm test --if-present
+
+      - name: Dependency audit (high+)
+        run: npm audit --audit-level=high
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t memory-service:ci .
 
