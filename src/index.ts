@@ -11,8 +11,8 @@ import Fastify from 'fastify';
 import Cors from '@fastify/cors';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
-import { EmbeddingService } from './embedding.js';
-import { DashVectorClient } from './dashvector.js';
+import { EMBEDDING_DIMENSION, EmbeddingService, MockEmbeddingService } from './embedding.js';
+import { DashVectorClient, MockVectorStore } from './dashvector.js';
 import 'dotenv/config';
 
 // ---- 配置 ----
@@ -23,10 +23,19 @@ const DB_PATH = process.env.DB_PATH || './data/memories.db';
 const DASHVECTOR_API_KEY = process.env.DASHVECTOR_API_KEY || '';
 const DASHVECTOR_ENDPOINT = process.env.DASHVECTOR_ENDPOINT || '';
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || '';
+const MEMORY_MOCK = process.env.MEMORY_MOCK === '1';
 
-if (!DASHVECTOR_API_KEY || !DASHVECTOR_ENDPOINT || !DASHSCOPE_API_KEY) {
-  console.error('Missing required env vars: DASHVECTOR_API_KEY, DASHVECTOR_ENDPOINT, DASHSCOPE_API_KEY');
+if (!MEMORY_MOCK && (!DASHVECTOR_API_KEY || !DASHVECTOR_ENDPOINT || !DASHSCOPE_API_KEY)) {
+  console.error(
+    'Missing required env vars: DASHVECTOR_API_KEY, DASHVECTOR_ENDPOINT, DASHSCOPE_API_KEY (or set MEMORY_MOCK=1 for local dev)'
+  );
   process.exit(1);
+}
+
+if (MEMORY_MOCK) {
+  process.stdout.write(
+    '\nWARNING: MEMORY_MOCK=1 enabled. Vector store is in-memory only (search data is lost on restart). Do NOT use in production.\n\n'
+  );
 }
 
 // ---- 初始化 ----
@@ -34,10 +43,14 @@ if (!DASHVECTOR_API_KEY || !DASHVECTOR_ENDPOINT || !DASHSCOPE_API_KEY) {
 const fastify = Fastify({ logger: { level: 'info' } });
 await fastify.register(Cors, { origin: true });
 
-const embedding = new EmbeddingService(DASHSCOPE_API_KEY);
-const dv = new DashVectorClient(DASHVECTOR_ENDPOINT, DASHVECTOR_API_KEY);
+const embedding = MEMORY_MOCK ? new MockEmbeddingService() : new EmbeddingService(DASHSCOPE_API_KEY);
+const dv = MEMORY_MOCK ? new MockVectorStore() : new DashVectorClient(DASHVECTOR_ENDPOINT, DASHVECTOR_API_KEY);
 
 // SQLite 元数据备份
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+mkdirSync(dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.exec(`
@@ -71,8 +84,8 @@ const stmts = {
 };
 
 // 确保 DashVector collection 存在
-await dv.ensureCollection(1024);
-fastify.log.info('DashVector collection ready');
+await dv.ensureCollection(EMBEDDING_DIMENSION);
+fastify.log.info(MEMORY_MOCK ? 'Mock vector store ready' : 'DashVector collection ready');
 
 // ---- 类型 ----
 

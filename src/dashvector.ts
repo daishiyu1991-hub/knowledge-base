@@ -5,7 +5,7 @@
 
 const COLLECTION = 'hermes_memory';
 
-interface DocPayload {
+export interface DocPayload {
   agent_id: string;
   user_id: string;
   type: string;
@@ -14,7 +14,7 @@ interface DocPayload {
   content: string;
 }
 
-interface SearchHit {
+export interface SearchHit {
   id: string;
   score: number;
   fields: DocPayload;
@@ -143,4 +143,60 @@ export class DashVectorClient {
     }
     return json;
   }
+}
+
+/**
+ * In-memory vector store (for dev/testing).
+ * Matches the minimal surface used by `src/index.ts`.
+ */
+export class MockVectorStore {
+  private docs = new Map<string, { vector: number[]; fields: DocPayload }>();
+
+  async ensureCollection(_dimension: number = 1024): Promise<void> {
+    // no-op
+  }
+
+  async upsert(id: string, vector: number[], payload: DocPayload): Promise<void> {
+    this.docs.set(id, { vector, fields: payload });
+  }
+
+  async search(
+    vector: number[],
+    filter: { agent_id: string; user_id?: string },
+    limit: number = 10
+  ): Promise<SearchHit[]> {
+    const hits: SearchHit[] = [];
+    for (const [id, doc] of this.docs.entries()) {
+      if (doc.fields.agent_id !== filter.agent_id) continue;
+      if (filter.user_id && doc.fields.user_id !== filter.user_id) continue;
+      hits.push({ id, score: cosine(vector, doc.vector), fields: doc.fields });
+    }
+    hits.sort((a, b) => b.score - a.score);
+    return hits.slice(0, limit);
+  }
+
+  async delete(ids: string[]): Promise<void> {
+    for (const id of ids) this.docs.delete(id);
+  }
+
+  async stats(): Promise<{ docCount: number }> {
+    return { docCount: this.docs.size };
+  }
+}
+
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length) {
+    throw new Error(`cosine: dimension mismatch (${a.length} vs ${b.length})`);
+  }
+  const n = a.length;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < n; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom ? dot / denom : 0;
 }

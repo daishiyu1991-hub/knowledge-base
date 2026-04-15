@@ -5,7 +5,7 @@
 
 const DASHSCOPE_BASE = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
 const MODEL = 'text-embedding-v3';
-const DIMENSION = 1024;
+export const EMBEDDING_DIMENSION = 1024;
 
 interface EmbeddingResponse {
   output: {
@@ -78,7 +78,7 @@ export class EmbeddingService {
       body: JSON.stringify({
         model: MODEL,
         input: { texts },
-        parameters: { dimension: DIMENSION, text_type: 'document' },
+        parameters: { dimension: EMBEDDING_DIMENSION, text_type: 'document' },
       }),
     });
 
@@ -89,4 +89,60 @@ export class EmbeddingService {
 
     return res.json() as Promise<EmbeddingResponse>;
   }
+}
+
+/**
+ * Local deterministic embedding (for dev/testing).
+ *
+ * - 1024维，便于与 DashVector schema 对齐
+ * - 同一文本生成稳定向量（便于复现）
+ */
+export class MockEmbeddingService {
+  private cache = new Map<string, number[]>();
+
+  async embed(text: string): Promise<number[]> {
+    const cached = this.cache.get(text);
+    if (cached) return cached;
+    const v = makeDeterministicVector(text);
+    this.cache.set(text, v);
+    return v;
+  }
+
+  async batchEmbed(texts: string[]): Promise<number[][]> {
+    return Promise.all(texts.map((t) => this.embed(t)));
+  }
+}
+
+function makeDeterministicVector(text: string): number[] {
+  const seed = fnv1a32(text);
+  let x = seed || 1;
+
+  const v = new Array<number>(EMBEDDING_DIMENSION);
+  let sumSq = 0;
+  for (let i = 0; i < EMBEDDING_DIMENSION; i++) {
+    // xorshift32
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+
+    // map to [-1, 1]
+    const val = ((x >>> 0) / 0xffffffff) * 2 - 1;
+    v[i] = val;
+    sumSq += val * val;
+  }
+
+  // normalize so cosine similarity works
+  const norm = Math.sqrt(sumSq) || 1;
+  for (let i = 0; i < v.length; i++) v[i] = v[i] / norm;
+  return v;
+}
+
+function fnv1a32(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    // 32-bit FNV prime
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
 }
