@@ -4,6 +4,7 @@
  */
 
 const COLLECTION = 'hermes_memory';
+const API_PREFIX = '/v1';
 const REQUEST_TIMEOUT_MS = 10000;
 
 interface DashVectorResponseBase {
@@ -19,21 +20,11 @@ interface DashVectorQueryDoc {
 
 interface DashVectorQueryResponse extends DashVectorResponseBase {
   docs?: DashVectorQueryDoc[];
+  output?: DashVectorQueryDoc[];
 }
 
 interface DashVectorCollectionResponse extends DashVectorResponseBase {
   doc_count?: number;
-}
-
-interface DashVectorFilterClause {
-  op: 'eq';
-  field: 'agent_id' | 'user_id';
-  value: string;
-}
-
-interface DashVectorFilter {
-  op: 'and';
-  clauses: DashVectorFilterClause[];
 }
 
 export interface DocPayload {
@@ -67,26 +58,32 @@ export class DashVectorClient {
       await this.request('POST', '/collections', {
         name: COLLECTION,
         dimension,
+        dtype: 'FLOAT',
         metric: 'cosine',
         fields_schema: {
-          agent_id: 'string',
-          user_id: 'string',
-          type: 'string',
-          importance: 'float',
-          created_at: 'integer',
-          content: 'string',
+          agent_id: 'STRING',
+          user_id: 'STRING',
+          type: 'STRING',
+          importance: 'FLOAT',
+          created_at: 'FLOAT',
+          content: 'STRING',
         },
       });
     } catch (err: unknown) {
       // 已存在不报错
-      if (!(err instanceof Error) || !err.message.includes('already exists')) throw err;
+      if (
+        !(err instanceof Error) ||
+        (!err.message.includes('already exists') && !err.message.includes('exist in db'))
+      ) {
+        throw err;
+      }
     }
   }
 
   // ---- 写入 ----
 
   async upsert(id: string, vector: number[], payload: DocPayload): Promise<void> {
-    await this.request('POST', `/collections/${COLLECTION}/docs`, {
+    await this.request('POST', `/collections/${COLLECTION}/docs/upsert`, {
       docs: [{ id, vector, fields: payload }],
     });
   }
@@ -97,7 +94,7 @@ export class DashVectorClient {
     // DashVector 单次最多 100 条
     for (let i = 0; i < items.length; i += 100) {
       const chunk = items.slice(i, i + 100);
-      await this.request('POST', `/collections/${COLLECTION}/docs`, {
+      await this.request('POST', `/collections/${COLLECTION}/docs/upsert`, {
         docs: chunk,
       });
     }
@@ -110,22 +107,15 @@ export class DashVectorClient {
     filter: { agent_id: string; user_id?: string },
     limit: number = 10
   ): Promise<SearchHit[]> {
-    const filterExpr: DashVectorFilter = {
-      op: 'and',
-      clauses: [{ op: 'eq', field: 'agent_id', value: filter.agent_id }],
-    };
-    if (filter.user_id) {
-      filterExpr.clauses.push({ op: 'eq', field: 'user_id', value: filter.user_id });
-    }
-
     const resp = await this.request<DashVectorQueryResponse>('POST', `/collections/${COLLECTION}/query`, {
       vector,
-      filter: filterExpr,
-      top_k: limit,
+      filter: this.buildFilter(filter),
+      topk: limit,
       include_vector: false,
     });
 
-    return (resp.docs || []).map((doc) => ({
+    const docs = resp.output || resp.docs || [];
+    return docs.map((doc) => ({
       id: doc.id,
       score: doc.score,
       fields: doc.fields,
@@ -136,7 +126,7 @@ export class DashVectorClient {
 
   async delete(ids: string[]): Promise<void> {
     if (ids.length === 0) return;
-    await this.request('POST', `/collections/${COLLECTION}/docs/delete`, {
+    await this.request('DELETE', `/collections/${COLLECTION}/docs`, {
       ids,
     });
   }
@@ -148,6 +138,14 @@ export class DashVectorClient {
     return { docCount: resp.doc_count ?? 0 };
   }
 
+  private buildFilter(filter: { agent_id: string; user_id?: string }): string {
+    const clauses = [`agent_id = '${escapeFilterValue(filter.agent_id)}'`];
+    if (filter.user_id) {
+      clauses.push(`user_id = '${escapeFilterValue(filter.user_id)}'`);
+    }
+    return clauses.join(' and ');
+  }
+
   // ---- 底层请求 ----
 
   private async request<T extends DashVectorResponseBase>(
@@ -155,14 +153,14 @@ export class DashVectorClient {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const url = `${this.endpoint}${path}`;
+    const url = `${this.endpoint}${API_PREFIX}${path}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     const opts: RequestInit = {
       method,
       headers: {
         'Content-Type': 'application/json',
-        'dashvector-api-key': this.apiKey,
+        'dashvector-auth-token': this.apiKey,
       },
       signal: controller.signal,
     };
@@ -176,7 +174,7 @@ export class DashVectorClient {
     }
 
     const json = (await res.json()) as T;
-    if (json.code !== 0 && json.code !== 200) {
+    if (json.code !== 0) {
       throw new Error(`DashVector error: code=${json.code} message=${json.message}`);
     }
     return json;
@@ -237,4 +235,8 @@ function cosine(a: number[], b: number[]): number {
   }
   const denom = Math.sqrt(na) * Math.sqrt(nb);
   return denom ? dot / denom : 0;
+}
+
+function escapeFilterValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
