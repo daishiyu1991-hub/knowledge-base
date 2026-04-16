@@ -61,10 +61,19 @@ import sys
 import os
 
 MEMORY_API = os.environ.get("MEMORY_API_URL", "http://memory-service:3010")
-AGENT_ID = os.environ.get("HERMES_AGENT_ID", os.environ.get("HOSTNAME", "unknown"))
+AGENT_ID = os.environ.get("HERMES_AGENT_ID", "").strip()
+API_KEY = os.environ.get("MEMORY_SERVICE_API_KEY", "").strip()
 
 def run(args):
     """保存记忆"""
+    if not API_KEY:
+        return {"error": "MEMORY_SERVICE_API_KEY is required"}
+
+    if not AGENT_ID:
+        return {
+            "error": "HERMES_AGENT_ID is required. Do not rely on HOSTNAME in Docker because it changes after container restarts."
+        }
+
     if isinstance(args, str):
         try:
             data = json.loads(args)
@@ -85,7 +94,12 @@ def run(args):
     }
 
     try:
-        resp = requests.post(f"{MEMORY_API}/api/memory", json=payload, timeout=10)
+        resp = requests.post(
+            f"{MEMORY_API}/api/memory",
+            json=payload,
+            timeout=10,
+            headers={"X-Memory-Api-Key": API_KEY},
+        )
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.JSONDecodeError:
@@ -122,10 +136,19 @@ import sys
 import os
 
 MEMORY_API = os.environ.get("MEMORY_API_URL", "http://memory-service:3010")
-AGENT_ID = os.environ.get("HERMES_AGENT_ID", os.environ.get("HOSTNAME", "unknown"))
+AGENT_ID = os.environ.get("HERMES_AGENT_ID", "").strip()
+API_KEY = os.environ.get("MEMORY_SERVICE_API_KEY", "").strip()
 
 def run(args):
     """搜索记忆"""
+    if not API_KEY:
+        return {"error": "MEMORY_SERVICE_API_KEY is required"}
+
+    if not AGENT_ID:
+        return {
+            "error": "HERMES_AGENT_ID is required. Do not rely on HOSTNAME in Docker because it changes after container restarts."
+        }
+
     if isinstance(args, str):
         try:
             data = json.loads(args)
@@ -147,7 +170,12 @@ def run(args):
         payload["user_id"] = data["user_id"]
 
     try:
-        resp = requests.post(f"{MEMORY_API}/api/memory/search", json=payload, timeout=10)
+        resp = requests.post(
+            f"{MEMORY_API}/api/memory/search",
+            json=payload,
+            timeout=10,
+            headers={"X-Memory-Api-Key": API_KEY},
+        )
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.JSONDecodeError:
@@ -182,9 +210,18 @@ import sys
 import os
 
 MEMORY_API = os.environ.get("MEMORY_API_URL", "http://memory-service:3010")
-AGENT_ID = os.environ.get("HERMES_AGENT_ID", os.environ.get("HOSTNAME", "unknown"))
+AGENT_ID = os.environ.get("HERMES_AGENT_ID", "").strip()
+API_KEY = os.environ.get("MEMORY_SERVICE_API_KEY", "").strip()
 
 def run(args=""):
+    if not API_KEY:
+        return {"error": "MEMORY_SERVICE_API_KEY is required"}
+
+    if not AGENT_ID:
+        return {
+            "error": "HERMES_AGENT_ID is required. Do not rely on HOSTNAME in Docker because it changes after container restarts."
+        }
+
     if args and isinstance(args, str):
         try:
             data = json.loads(args)
@@ -200,7 +237,12 @@ def run(args=""):
         params["user_id"] = data["user_id"]
 
     try:
-        resp = requests.get(f"{MEMORY_API}/api/memory", params=params, timeout=10)
+        resp = requests.get(
+            f"{MEMORY_API}/api/memory",
+            params=params,
+            timeout=10,
+            headers={"X-Memory-Api-Key": API_KEY},
+        )
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.JSONDecodeError:
@@ -229,9 +271,18 @@ import sys
 import os
 
 MEMORY_API = os.environ.get("MEMORY_API_URL", "http://memory-service:3010")
-AGENT_ID = os.environ.get("HERMES_AGENT_ID", os.environ.get("HOSTNAME", "unknown"))
+AGENT_ID = os.environ.get("HERMES_AGENT_ID", "").strip()
+API_KEY = os.environ.get("MEMORY_SERVICE_API_KEY", "").strip()
 
 def run(args):
+    if not API_KEY:
+        return {"error": "MEMORY_SERVICE_API_KEY is required"}
+
+    if not AGENT_ID:
+        return {
+            "error": "HERMES_AGENT_ID is required. Do not rely on HOSTNAME in Docker because it changes after container restarts."
+        }
+
     if isinstance(args, str):
         mem_id = args.strip()
     else:
@@ -244,7 +295,8 @@ def run(args):
         resp = requests.delete(
             f"{MEMORY_API}/api/memory/{mem_id}",
             params={"agent_id": AGENT_ID},
-            timeout=10
+            timeout=10,
+            headers={"X-Memory-Api-Key": API_KEY},
         )
         resp.raise_for_status()
         return resp.json()
@@ -276,9 +328,13 @@ skills:
 ```env
 MEMORY_API_URL=http://memory-service:3010
 HERMES_AGENT_ID=hermes-admin
+MEMORY_SERVICE_API_KEY=replace_with_a_long_random_secret
 ```
 
-> **重要**：每个 Hermes 实例的 `HERMES_AGENT_ID` 必须不同！
+> **重要**：`HERMES_AGENT_ID` 现在是必填项，不能再回退到容器 `HOSTNAME`。
+> Docker 容器重启后 `HOSTNAME` 会变化，导致旧记忆全部搜不到。
+>
+> 每个 Hermes 实例的 `HERMES_AGENT_ID` 也必须不同：
 > - admin → `hermes-admin`
 > - jingwen → `hermes-jingwen`
 > - guohua → `hermes-guohua`
@@ -346,20 +402,24 @@ docker restart hermes-admin
 
 ```bash
 # 1. 检查服务是否在线（宿主机测试）
-curl http://localhost:3010/api/memory/health
+curl http://localhost:3010/api/memory/health \
+  -H "X-Memory-Api-Key: replace_with_a_long_random_secret"
 
 # 2. 保存一条测试记忆
 curl -X POST http://localhost:3010/api/memory \
+  -H "X-Memory-Api-Key: replace_with_a_long_random_secret" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"hermes-admin","content":"这是一条测试记忆","type":"fact"}'
 
 # 3. 搜索测试
 curl -X POST http://localhost:3010/api/memory/search \
+  -H "X-Memory-Api-Key: replace_with_a_long_random_secret" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"hermes-admin","query":"测试"}'
 
 # 4. 验证隔离（应该搜不到其他 agent 的数据）
 curl -X POST http://localhost:3010/api/memory/search \
+  -H "X-Memory-Api-Key: replace_with_a_long_random_secret" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"hermes-jingwen","query":"测试"}'
 # 应返回空结果
