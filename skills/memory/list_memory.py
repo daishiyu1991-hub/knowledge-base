@@ -14,10 +14,18 @@ import requests
 
 
 MEMORY_API = os.environ.get("MEMORY_API_URL", "http://memory-service:3010")
-AGENT_ID = os.environ.get("HERMES_AGENT_ID", os.environ.get("HOSTNAME", "unknown"))
+AGENT_ID = os.environ.get("HERMES_AGENT_ID", "").strip()
+API_KEY = os.environ.get("MEMORY_SERVICE_API_KEY", "").strip()
 
 
 def run(args=""):
+    if not API_KEY:
+        return {"error": "MEMORY_SERVICE_API_KEY is required"}
+    if not AGENT_ID:
+        return {
+            "error": "HERMES_AGENT_ID is required. Do not rely on HOSTNAME in Docker because it changes after container restarts."
+        }
+
     if args and isinstance(args, str):
         try:
             data = json.loads(args)
@@ -33,7 +41,12 @@ def run(args=""):
         params["user_id"] = data["user_id"]
 
     try:
-        resp = requests.get(f"{MEMORY_API}/api/memory", params=params, timeout=10)
+        resp = requests.get(
+            f"{MEMORY_API}/api/memory",
+            params=params,
+            timeout=10,
+            headers={"X-Memory-Api-Key": API_KEY},
+        )
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.JSONDecodeError:

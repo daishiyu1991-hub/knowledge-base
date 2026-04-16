@@ -4,6 +4,37 @@
  */
 
 const COLLECTION = 'hermes_memory';
+const REQUEST_TIMEOUT_MS = 10000;
+
+interface DashVectorResponseBase {
+  code: number;
+  message?: string;
+}
+
+interface DashVectorQueryDoc {
+  id: string;
+  score: number;
+  fields: DocPayload;
+}
+
+interface DashVectorQueryResponse extends DashVectorResponseBase {
+  docs?: DashVectorQueryDoc[];
+}
+
+interface DashVectorCollectionResponse extends DashVectorResponseBase {
+  doc_count?: number;
+}
+
+interface DashVectorFilterClause {
+  op: 'eq';
+  field: 'agent_id' | 'user_id';
+  value: string;
+}
+
+interface DashVectorFilter {
+  op: 'and';
+  clauses: DashVectorFilterClause[];
+}
 
 export interface DocPayload {
   agent_id: string;
@@ -46,9 +77,9 @@ export class DashVectorClient {
           content: 'string',
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // 已存在不报错
-      if (!err.message?.includes('already exists')) throw err;
+      if (!(err instanceof Error) || !err.message.includes('already exists')) throw err;
     }
   }
 
@@ -79,7 +110,7 @@ export class DashVectorClient {
     filter: { agent_id: string; user_id?: string },
     limit: number = 10
   ): Promise<SearchHit[]> {
-    const filterExpr: any = {
+    const filterExpr: DashVectorFilter = {
       op: 'and',
       clauses: [{ op: 'eq', field: 'agent_id', value: filter.agent_id }],
     };
@@ -87,14 +118,14 @@ export class DashVectorClient {
       filterExpr.clauses.push({ op: 'eq', field: 'user_id', value: filter.user_id });
     }
 
-    const resp = await this.request('POST', `/collections/${COLLECTION}/query`, {
+    const resp = await this.request<DashVectorQueryResponse>('POST', `/collections/${COLLECTION}/query`, {
       vector,
       filter: filterExpr,
       top_k: limit,
       include_vector: false,
     });
 
-    return (resp.docs || []).map((doc: any) => ({
+    return (resp.docs || []).map((doc) => ({
       id: doc.id,
       score: doc.score,
       fields: doc.fields,
@@ -113,31 +144,38 @@ export class DashVectorClient {
   // ---- 健康检查 ----
 
   async stats(): Promise<{ docCount: number }> {
-    const resp = await this.request('GET', `/collections/${COLLECTION}`);
+    const resp = await this.request<DashVectorCollectionResponse>('GET', `/collections/${COLLECTION}`);
     return { docCount: resp.doc_count ?? 0 };
   }
 
   // ---- 底层请求 ----
 
-  private async request(method: string, path: string, body?: any): Promise<any> {
+  private async request<T extends DashVectorResponseBase>(
+    method: string,
+    path: string,
+    body?: unknown
+  ): Promise<T> {
     const url = `${this.endpoint}${path}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     const opts: RequestInit = {
       method,
       headers: {
         'Content-Type': 'application/json',
         'dashvector-api-key': this.apiKey,
       },
+      signal: controller.signal,
     };
     if (body) opts.body = JSON.stringify(body);
 
-    const res = await fetch(url, opts);
+    const res = await fetch(url, opts).finally(() => clearTimeout(timeout));
 
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`DashVector ${method} ${path} failed (${res.status}): ${text}`);
     }
 
-    const json = await res.json();
+    const json = (await res.json()) as T;
     if (json.code !== 0 && json.code !== 200) {
       throw new Error(`DashVector error: code=${json.code} message=${json.message}`);
     }

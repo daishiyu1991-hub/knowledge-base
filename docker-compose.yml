@@ -20,8 +20,9 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://localhost:3010/api/memory/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+          "fetch('http://localhost:3010/api/memory/health',{headers:{'x-memory-api-key':process.env.MEMORY_SERVICE_API_KEY||''}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
         ]
+      start_period: 30s
       interval: 30s
       timeout: 10s
       retries: 3

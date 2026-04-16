@@ -6,6 +6,7 @@
 const DASHSCOPE_BASE = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
 const MODEL = 'text-embedding-v3';
 export const EMBEDDING_DIMENSION = 1024;
+const REQUEST_TIMEOUT_MS = 10000;
 
 interface EmbeddingResponse {
   output: {
@@ -30,6 +31,9 @@ export class EmbeddingService {
 
     const results = await this.batchEmbed([text]);
     const vector = results[0];
+    if (!vector) {
+      throw new Error('Embedding generation returned no vector');
+    }
     this.cache.set(text, vector);
     return vector;
   }
@@ -59,16 +63,27 @@ export class EmbeddingService {
 
       for (let j = 0; j < chunk.length; j++) {
         const embedding = resp.output.embeddings[j];
+        if (!embedding) {
+          throw new Error(
+            `DashScope returned ${resp.output.embeddings.length} embeddings for ${chunk.length} inputs`
+          );
+        }
         const vector = embedding.embedding;
         results[chunk[j].index] = vector;
         this.cache.set(chunk[j].text, vector);
       }
     }
 
+    if (results.some((vector) => !vector)) {
+      throw new Error('Embedding generation returned incomplete results');
+    }
+
     return results;
   }
 
   private async callApi(texts: string[]): Promise<EmbeddingResponse> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     const res = await fetch(DASHSCOPE_BASE, {
       method: 'POST',
       headers: {
@@ -80,7 +95,8 @@ export class EmbeddingService {
         input: { texts },
         parameters: { dimension: EMBEDDING_DIMENSION, text_type: 'document' },
       }),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
 
     if (!res.ok) {
       const body = await res.text();

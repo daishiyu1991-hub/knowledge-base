@@ -32,12 +32,13 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test --if-present
+        run: npm test
 
       - name: Dependency audit (high+)
         run: npm audit --audit-level=high
 
   docker-build:
+    needs: build-test-audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
