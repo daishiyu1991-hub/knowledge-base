@@ -1,72 +1,37 @@
-# Hermes Memory Service
+---
+description: 
+alwaysApply: true
+---
 
-## 项目简介
-Hermes Agent 向量记忆中间件。5 个 Hermes Agent（admin/jingwen/guohua/linjun/yiming）运行在阿里云 ECS (8.129.13.96)，通过此服务获得语义搜索记忆能力。
+# Hermes Memo Provider — ARCHIVED
 
-## 架构
-```
-Hermes Agent (Python Skills) → HTTP API → memory-service (Fastify/Node.js)
-                                              → DashVector (向量存储)
-                                              → DashScope text-embedding-v3 (embedding, 1024维)
-                                              → SQLite (元数据备份)
-```
+## ⚠️ 当前状态：本仓库已退役（2026-04-17）
 
-## 技术栈
-- Fastify 5 + TypeScript (Node.js 22)
-- DashVector REST API（阿里云托管向量搜索）
-- DashScope API（text-embedding-v3，1024 维）
-- better-sqlite3（本地元数据备份）
-- Docker 部署
+团队记忆方案已经全部切到 [**Honcho 托管**](https://app.honcho.dev)。Honcho 已被 [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) 原生集成，**不需要任何自维护代码**。
 
-## API 端点
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/memory` | POST | 保存记忆 |
-| `/api/memory/search` | POST | 语义搜索 |
-| `/api/memory/:id` | DELETE | 删除记忆（需 agent_id 校验） |
-| `/api/memory` | GET | 列出最近记忆（支持 user_id 过滤） |
-| `/api/memory/health` | GET | 健康检查 |
+## 演进史
 
-## 关键设计
-- **隔离**: 单 Collection `hermes_memory`，agent_id metadata filter 隔离，非 post-search 过滤
-- **安全**: 删除操作校验 agent_id，403 防跨 Agent 删除
-- **降级**: DashVector 不可用时服务返回错误，不崩溃
-- **缓存**: embedding 结果内存缓存，相同文本不重复调用
+| 代际 | 方案 | 状态 |
+|---|---|---|
+| v1 | Node.js HTTP 服务 + DashVector | ❌ 退役（src/ 已删）|
+| v2 | Python `mem0_provider_new.py` + Zilliz + 百炼 | ❌ 退役（实际从未稳定运行，Zilliz collection 始终为空）|
+| **v3** | hermes-agent 内置 honcho 插件 → Honcho 托管 | **✅ 当前方案** |
 
-## 环境变量
-```env
-DASHVECTOR_API_KEY=       # DashVector API Key
-DASHVECTOR_ENDPOINT=      # DashVector Cluster Endpoint
-DASHSCOPE_API_KEY=        # DashScope API Key (embedding)
-PORT=3010                 # 服务端口
-HOST=0.0.0.0              # 监听地址
-DB_PATH=./data/memories.db # SQLite 路径
-```
+## 给 AI 助手的当前工作原则
 
-## 部署
-```bash
-# 宿主机构建并启动
-cd /opt/memory-service
-npm install && npx tsc
-docker compose up -d --build
+- **不再写任何 mem0 / DashVector / Zilliz 相关代码**——已废弃
+- **不再修改本仓库**（除 README.md / CLAUDE.md 维护性更新）
+- **如需 Honcho 接入或运维**：去 hermes 容器内跑 `hermes memory setup` / `hermes memory status`
+- **如需写隐私规则 / 接入文档**：写到 [team wiki](https://wiki.86lux.net) `canon/system/` 下，不要写到本仓库
+- **如需查 v1/v2 历史**：去 git log 看，源码已删
 
-# 或用部署脚本
-bash deploy.sh
-```
+## 关联
 
-## Hermes Agent 对接
-见 `hermes-memory-setup-guide.md`，包含 4 个 Python Skill 脚本：
-- save_memory.py — 保存记忆
-- search_memory.py — 语义搜索
-- list_memory.py — 列出记忆
-- delete_memory.py — 删除记忆
+- 当前 wiki：https://wiki.86lux.net
+- 当前 hermes 仓库：https://github.com/NousResearch/hermes-agent
+- Honcho 托管：https://app.honcho.dev
+- Honcho 跟 Hermes 集成文档：https://docs.honcho.dev/v3/guides/integrations/hermes
 
-## 仓库
-https://github.com/daishiyu1991-hub/knowledge-base
+## 归档时间表
 
-## 待办
-- [ ] 主人在阿里云开通 DashVector + DashScope，获取 API Key
-- [ ] 填写 .env 文件
-- [ ] 部署到 ECS 服务器
-- [ ] 配置 Hermes Agent Skills
-- [ ] 端到端测试验证
+待 Honcho 切换稳定运行 1 个月后（约 2026-05-17），本仓库将在 GitHub 上 archive 变只读。

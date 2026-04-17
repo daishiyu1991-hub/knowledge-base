@@ -5,3 +5,25 @@ data/
 *.log
 .claude/
 ~$*.md
+
+# Cursor plans (symlinked from ~/.cursor/plans/, individual draft files)
+plans/
+
+# Wiki vault staging (intermediate scripts/files used during deploys)
+.wiki-vault-staging/
+
+# IDE / build artifacts
+.vscode/
+.playwright-mcp/
+__pycache__/
+*.pyc
+
+# Local-only research notes & one-off scripts (kept untracked, not in repo)
+slice*.sh
+slice*.py
+slice*.md
+find_*.sh
+hermes-mem0-explainer.html
+team-architecture-explainer.html
+feishu_*.*
+*.ndjson
